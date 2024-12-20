@@ -1,5 +1,4 @@
 from functools import partial
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -31,9 +30,13 @@ X_test = scaler.transform(X_test)
 LOWER_BOUND = 0.0
 UPPER_BOUND = 1.0
 
-# GA Configuration
+# GA Configuration - same as model_with_GA.py
 GA_METHODS = {
-    "Standard GA": (tools.cxTwoPoint, tools.mutFlipBit, tools.selTournament),
+    "Standard GA": (
+        tools.cxTwoPoint,
+        tools.mutFlipBit,
+        tools.selTournament
+    ),
     "Real-Coded GA": (
         partial(tools.cxBlend, alpha=0.5),  # Crossover with alpha
         partial(tools.mutGaussian, mu=0, sigma=1, indpb=0.2),  # Mutation with required parameters
@@ -44,7 +47,11 @@ GA_METHODS = {
         partial(tools.mutPolynomialBounded, eta=20.0, low=LOWER_BOUND, up=UPPER_BOUND, indpb=0.2),  # Mutation
         tools.selNSGA2  # Selection
     ),
-    "Hybrid GA": (tools.cxOnePoint, tools.mutShuffleIndexes, partial(tools.selTournament, tournsize=3)),
+    "Hybrid GA": (
+        tools.cxOnePoint,
+        tools.mutShuffleIndexes,
+        partial(tools.selTournament, tournsize=3)
+    ),
 }
 
 # Feature Names
@@ -53,7 +60,6 @@ feature_names = list(X.columns)
 
 # Fitness Function for GA
 def evaluate_svm(individual, X_train, y_train, lambda_penalty=200, min_features=3):
-
     selected_features = [idx for idx, val in enumerate(individual) if val == 1]
 
     # If no features selected, impose a heavy penalty
@@ -176,7 +182,8 @@ def main():
         creator.create("FitnessMin", base.Fitness,
                        weights=(-1.0, -0.5))  # Weights: (-1.0) for RMSE, (-0.5) for features
         creator.create("Individual", list, fitness=creator.FitnessMin)
-        best_individual, best_fitness, avg_fitness, worst_fitness, fitness_history = ga_feature_selection(X, y, (crossover, mutation, selection))
+        best_individual, best_fitness, avg_fitness, worst_fitness, fitness_history = ga_feature_selection(X, y, (
+        crossover, mutation, selection))
 
         # Display Fitness Evolution
         st.subheader("GA Fitness Evolution")
@@ -220,28 +227,6 @@ def main():
         comparison_df = pd.DataFrame(comparison_data)
         st.table(comparison_df)
 
-        # # Additional Comparison Table (Accuracy, Precision, Recall, F1)
-        # st.subheader("Classification Metrics Comparison")
-        # baseline_accuracy = accuracy_score(np.round(y_test), np.round(baseline_predictions))
-        # baseline_precision = precision_score(np.round(y_test), np.round(baseline_predictions), average='weighted',
-        #                                      zero_division=0)
-        # baseline_recall = recall_score(np.round(y_test), np.round(baseline_predictions), average='weighted',
-        #                                zero_division=0)
-        # baseline_f1 = f1_score(np.round(y_test), np.round(baseline_predictions), average='weighted', zero_division=0)
-        #
-        # ga_accuracy = accuracy_score(np.round(y_test), np.round(predictions_ga))
-        # ga_precision = precision_score(np.round(y_test), np.round(predictions_ga), average='weighted', zero_division=0)
-        # ga_recall = recall_score(np.round(y_test), np.round(predictions_ga), average='weighted', zero_division=0)
-        # ga_f1 = f1_score(np.round(y_test), np.round(predictions_ga), average='weighted', zero_division=0)
-        #
-        # classification_data = {
-        #     "Metric": ["Accuracy", "Precision", "Recall", "F1 Score"],
-        #     "Baseline SVM": [baseline_accuracy, baseline_precision, baseline_recall, baseline_f1],
-        #     "SVM with GA": [ga_accuracy, ga_precision, ga_recall, ga_f1]
-        # }
-        # classification_df = pd.DataFrame(classification_data)
-        # st.table(classification_df)
-
         # Map Visualization with Actual Burned Area
         st.subheader("Actual vs Predicted Burned Area on Random Map")
         random_coords = np.random.rand(len(y_test), 2) * 100  # Random map coordinates
@@ -276,3 +261,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# streamlit run dashboard.py

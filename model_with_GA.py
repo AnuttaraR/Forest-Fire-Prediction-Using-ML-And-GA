@@ -1,5 +1,4 @@
 from collections import defaultdict
-
 import joblib
 import pandas as pd
 import numpy as np
@@ -11,7 +10,7 @@ from deap import base, creator, tools, algorithms
 import random
 import matplotlib.pyplot as plt
 from functools import partial
-import scipy.stats as stats  # For confidence intervals
+import scipy.stats as stats
 from scipy.stats import t
 
 # Load the cleaned dataset
@@ -34,7 +33,8 @@ X_test = scaler.transform(X_test)
 if "FitnessMin" not in creator.__dict__:
     creator.create("FitnessMin", base.Fitness, weights=(-1.0,))  # Single-objective (minimize RMSE)
 if "MultiObjectiveFitnessMin" not in creator.__dict__:
-    creator.create("MultiObjectiveFitnessMin", base.Fitness, weights=(-1.0, -0.5))  # NSGA-II (min RMSE, #features)
+    creator.create("MultiObjectiveFitnessMin", base.Fitness,
+                   weights=(-1.0, -0.5))  # NSGA-II (min RMSE, min no.of features)
 
 # Define individuals for single-objective and multi-objective GAs
 if "Individual" not in creator.__dict__:
@@ -46,7 +46,7 @@ if "MultiObjectiveIndividual" not in creator.__dict__:
 def compute_confidence_interval(data, confidence=0.95):
     data = np.array(data)
     if len(data) < 2:
-        return (np.nan, np.nan)  # Not enough data for confidence interval
+        return (np.nan, np.nan)
     mean = np.mean(data)
     sem = np.std(data, ddof=1) / np.sqrt(len(data))  # Standard error of the mean
     ci_lower, ci_upper = t.interval(confidence, len(data) - 1, loc=mean, scale=sem)
@@ -57,7 +57,7 @@ def compute_confidence_interval(data, confidence=0.95):
 def evaluate_svm(individual, lambda_penalty=200, min_features=3):
     selected_features = [idx for idx, val in enumerate(individual) if val == 1]
 
-    # If no features selected, impose a heavy penalty
+    # If no features selected, impose a penalty
     if len(selected_features) == 0:
         return (500.0 + lambda_penalty,)
 
@@ -76,6 +76,8 @@ def evaluate_svm(individual, lambda_penalty=200, min_features=3):
 
 
 def evaluate_svm_nsga(individual, lambda_penalty=200, min_features=3):
+    # Objective 1: Reduce RMSE
+    # Objective 2: Minimize number of features
     selected_features = [idx for idx, val in enumerate(individual) if val == 1]
 
     # If no features selected, impose a heavy penalty
@@ -100,18 +102,28 @@ def evaluate_svm_nsga(individual, lambda_penalty=200, min_features=3):
 LOWER_BOUND = 0.0
 UPPER_BOUND = 1.0
 GA_METHODS = {
-    "Standard GA": (tools.cxTwoPoint, tools.mutFlipBit, tools.selTournament),
+    "Standard GA": (
+        tools.cxTwoPoint,  # Two-point crossover swaps random segments of parent chromosomes.
+        tools.mutFlipBit,  # FlipBit mutation toggles binary genes (0 or 1).
+        tools.selTournament  # Tournament selection picks the best individuals from random subgroups.
+    ),
     "Real-Coded GA": (
-        partial(tools.cxBlend, alpha=0.5),  # Crossover with alpha
-        partial(tools.mutGaussian, mu=0, sigma=1, indpb=0.2),  # Mutation with required parameters
-        partial(tools.selTournament, tournsize=3)  # Tournament selection with tournsize=3
+        partial(tools.cxBlend, alpha=0.5),  # Blend crossover mixes parent genes proportionally (alpha=0.5).
+        partial(tools.mutGaussian, mu=0, sigma=1, indpb=0.2),  # Gaussian mutation perturbs genes with random noise.
+        partial(tools.selTournament, tournsize=3)  # Tournament selection with group size 3.
     ),
     "NSGA-II": (
-        partial(tools.cxSimulatedBinaryBounded, eta=20.0, low=LOWER_BOUND, up=UPPER_BOUND),  # Crossover
-        partial(tools.mutPolynomialBounded, eta=20.0, low=LOWER_BOUND, up=UPPER_BOUND, indpb=0.2),  # Mutation
-        tools.selNSGA2  # Selection
+        partial(tools.cxSimulatedBinaryBounded, eta=20.0, low=LOWER_BOUND, up=UPPER_BOUND),
+        # Simulated binary crossover within bounds.
+        partial(tools.mutPolynomialBounded, eta=20.0, low=LOWER_BOUND, up=UPPER_BOUND, indpb=0.2),
+        # Polynomial mutation with bounds.
+        tools.selNSGA2  # NSGA-II selection keeps Pareto-optimal solutions for multi-objective optimization.
     ),
-    "Hybrid GA": (tools.cxOnePoint, tools.mutShuffleIndexes, partial(tools.selTournament, tournsize=3)),
+    "Hybrid GA": (
+        tools.cxOnePoint,  # One-point crossover swaps genes up to a single random point.
+        tools.mutShuffleIndexes,  # ShuffleIndexes mutation rearranges gene order.
+        partial(tools.selTournament, tournsize=3)  # Tournament selection with group size 3.
+    ),
 }
 
 
@@ -120,7 +132,7 @@ def ga_feature_selection(evaluate_function, ga_method, n_generations=30, is_mult
     crossover, mutation, selection = ga_method
     n_features = X.shape[1]
 
-    # Initialize evolution data
+    # Initialize evolution data for saving purposes
     evolution_data = {
         'total_generations': n_generations,
         'generations': [],
@@ -135,6 +147,9 @@ def ga_feature_selection(evaluate_function, ga_method, n_generations=30, is_mult
         'population_history': []
     }
 
+    if ga_name == "NSGA-II":
+        is_multi_objective = True
+
     # Select fitness and individual type
     if is_multi_objective:
         individual_type = creator.MultiObjectiveIndividual
@@ -146,16 +161,18 @@ def ga_feature_selection(evaluate_function, ga_method, n_generations=30, is_mult
     toolbox.register("attr_bool", random.randint, 0, 1)
 
     def valid_individual():
-        """Generate a valid individual with at least 3 features selected."""
+
+        # Generate a valid individual with at least 3 features selected
+
         while True:
             individual = [random.randint(0, 1) for _ in range(n_features)]
             if sum(individual) >= 3:
                 return individual_type(individual)
 
     def repair_individual(individual, min_features=3):
-        """
-        Ensures an individual has at least `min_features` selected.
-        """
+
+        # Ensures an individual has at least `min_features` selected.
+
         while sum(individual) < min_features:
             zero_indices = [i for i, value in enumerate(individual) if value == 0]
             if not zero_indices:
@@ -224,20 +241,23 @@ def ga_feature_selection(evaluate_function, ga_method, n_generations=30, is_mult
                     evolution_data['feature_counts'][idx] += 1
 
         if is_multi_objective:
-            population = toolbox.select(population + offspring, k=len(population))  # NSGA-II
+            population = toolbox.select(population + offspring,
+                                        k=len(population))  # Combine parent and offspring for NSGA-II selection.
         else:
-            population = toolbox.select(offspring, k=len(population))
+            population = toolbox.select(offspring,
+                                        k=len(population))  # Select from offspring for single-objective optimization.
 
     # Return the best individual (NSGA-II: Pareto front)
     if is_multi_objective:
-        pareto_front = tools.sortNondominated(population, len(population), first_front_only=True)[0]
-        best_individual = tools.selBest(pareto_front, k=1)[0]
+        pareto_front = tools.sortNondominated(population, len(population), first_front_only=True)[
+            0]  # Get the Pareto-optimal front.
+        best_individual = tools.selBest(pareto_front, k=1)[0]  # Select the best individual from the Pareto front.
     else:
-        best_individual = tools.selBest(population, k=1)[0]
+        best_individual = tools.selBest(population, k=1)[
+            0]  # Select the best individual from the population for single-objective.
 
     selected_features = [index for index, val in enumerate(best_individual) if val == 1]
     return selected_features, evolution_data
-
 
 
 # Run GA for all methods and compare
